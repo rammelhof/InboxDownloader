@@ -296,10 +296,8 @@ public static class MailDownloader
         var mid = message.MessageId;
         if (!string.IsNullOrWhiteSpace(mid))
         {
-            var sanitized = Tui.SanitizeFileName(mid.Trim('<', '>').Replace('/', '_'));
-            if (sanitized.Length > 40)
-                sanitized = sanitized[..40];
-            parts.Add(sanitized);
+            var hash = XxHash32(mid.Trim('<', '>')) % 1_000_000;
+            parts.Add(hash.ToString("000000"));
         }
 
         var subject = Tui.SanitizeFileName(message.Subject ?? "");
@@ -307,6 +305,7 @@ public static class MailDownloader
             subject = subject[..60].TrimEnd();
         if (subject.Length > 0)
             parts.Add(subject);
+       
 
         var prefix = string.Join('_', parts);
         if (prefix.Length > 120)
@@ -478,5 +477,76 @@ public static class MailDownloader
         {
             // ignore - the connection is closed right after
         }
+    }
+
+    /// <summary>
+    /// XXH32 (32-bit XXHash) - fast, stable non-cryptographic hash.
+    /// Same input always yields the same 32-bit value across runs/platforms.
+    /// </summary>
+    private static uint XxHash32(string input, uint seed = 0)
+    {
+        const uint P1 = 2654435761u;
+        const uint P2 = 2246822519u;
+        const uint P3 = 3266489917u;
+        const uint P4 = 668265263u;
+        const uint P5 = 374761393u;
+
+        byte[] data = Encoding.UTF8.GetBytes(input);
+        int len = data.Length;
+        int idx = 0;
+        uint h;
+
+        if (len >= 16)
+        {
+            uint v1 = seed + P1 + P2;
+            uint v2 = seed + P2;
+            uint v3 = seed;
+            uint v4 = seed - P1;
+
+            while (idx <= len - 16)
+            {
+                v1 += ReadLE32(data, idx) * P2; v1 = (v1 << 13) | (v1 >> 19); v1 *= P1;
+                v2 += ReadLE32(data, idx + 4) * P2; v2 = (v2 << 13) | (v2 >> 19); v2 *= P1;
+                v3 += ReadLE32(data, idx + 8) * P2; v3 = (v3 << 13) | (v3 >> 19); v3 *= P1;
+                v4 += ReadLE32(data, idx + 12) * P2; v4 = (v4 << 13) | (v4 >> 19); v4 *= P1;
+                idx += 16;
+            }
+
+            h = (RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18));
+        }
+        else
+        {
+            h = seed + P5;
+        }
+
+        h += (uint)len;
+
+        while (idx <= len - 4)
+        {
+            h += ReadLE32(data, idx) * P3;
+            h = (h << 17) | (h >> 15);
+            h *= P4;
+            idx += 4;
+        }
+
+        while (idx < len)
+        {
+            h += data[idx] * P5;
+            h = (h << 11) | (h >> 21);
+            h *= P1;
+            idx++;
+        }
+
+        h ^= h >> 15;
+        h *= P2;
+        h ^= h >> 13;
+        h *= P3;
+        h ^= h >> 16;
+        return h;
+
+        static uint ReadLE32(byte[] b, int o) =>
+            (uint)b[o] | ((uint)b[o + 1] << 8) | ((uint)b[o + 2] << 16) | ((uint)b[o + 3] << 24);
+
+        static uint RotateLeft(uint x, int n) => (x << n) | (x >> (32 - n));
     }
 }
