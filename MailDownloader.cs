@@ -404,19 +404,31 @@ public static class MailDownloader
         // never store path components from the mail
         name = Tui.SanitizeFileName(Path.GetFileName(name));
 
-        // limit length, keep the extension (max 50 chars for the stem, 10 for the extension)
+        // limit length, keep the extension (max 80 chars for the stem, 10 for the extension)
+        const int maxStem = 80;
         var dotIdx = name.LastIndexOf('.');
         if (dotIdx > 0 && name.Length - dotIdx <= 10)
         {
             var stem = name[..dotIdx];
             var ext = name[dotIdx..];
-            if (stem.Length > 50)
-                stem = stem[..50];
+            if (stem.Length > maxStem)
+            {
+                // These bank-statement style files are long and often differ only in a
+                // trailing timestamp that falls past the truncation point. A plain
+                // prefix truncation would make distinct attachments collapse to the same
+                // name, so the second one is then skipped as "already exists" and lost.
+                // Append a short hash of the FULL name to keep them unique (deterministic,
+                // so a re-run still idempotently skips the already-saved file).
+                const int hashLen = 6;
+                var suffix = XxHash32(name).ToString("x" + hashLen);
+                var room = maxStem - (hashLen + 1); // 1 char for the '_' separator
+                stem = stem[..room] + "_" + suffix;
+            }
             name = stem + ext;
         }
-        else if (name.Length > 60)
+        else if (name.Length > 80)
         {
-            name = name[..60];
+            name = name[..80];
         }
 
         return name.Length == 0 ? $"attachment{index + 1}" : name;
